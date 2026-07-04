@@ -1,12 +1,22 @@
 from fastapi import FastAPI
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.inmemory import InMemoryBackend
+from fastapi_cache.decorator import cache
 from SQLAlchemy_hw import Connection, Brand, Product, BaseModel, ProductDTO
 from pydantic import BaseModel as PydanticModel
+from sqlalchemy import func
 
 # Подключаемся к базе данных SQLite
 conn = Connection("sqlite:///my_database.db")
 
 # Создаём экземпляр FastAPI — это наш сервер
 app = FastAPI()
+
+
+# Инициализация кэша при запуске сервера
+@app.on_event("startup")
+async def startup():
+    FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
 
 
 # Проверка что сервер работает
@@ -21,6 +31,15 @@ def get_brands():
     brands = conn.session.query(Brand).all()
     return [{"id": brand.id, "name": brand.name} for brand in brands]
 
+
+# GET /products/ — возвращает список всех товаров (с кэшем на 60 секунд)
+@app.get("/products/")
+@cache(expire=60)
+async def get_products():
+    products = conn.session.query(Product).all()
+    return [{"id": p.id, "title": p.title, "price": p.price} for p in products]
+
+
 # GET /products/{id}/ — возвращает один товар по его id
 @app.get("/products/{id}/")
 def get_product(id: int):
@@ -34,6 +53,13 @@ def get_product(id: int):
         "brand_id": product.brand_id,
         "category_id": product.category_id
     }
+
+
+# GET /statistics/ — общее количество товаров в базе
+@app.get("/statistics/")
+async def get_statistics():
+    total = conn.session.query(func.count(Product.id)).scalar()
+    return {"total_products": total}
 
 
 # Схема данных для обновления товара — принимает title и/или price
